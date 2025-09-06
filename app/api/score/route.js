@@ -1,7 +1,7 @@
 // app/api/score/route.js
 import { google } from 'googleapis';
 
-const SHEET_ID = process.env.1n_FnDTm559QLooTaFt-ozH8_ik-cXcAs-mWwnYxDgHM; // e.g. 1n_FnDTm559QLooTaFt-ozH8_ik-cXcAs-mWwnYxDgHM
+const SHEET_ID = process.env.GOOGLE_SHEET_ID; // set in Vercel
 
 // Google Sheets auth (service account JSON must be in Vercel env: GOOGLE_SERVICE_ACCOUNT)
 const auth = new google.auth.GoogleAuth({
@@ -10,7 +10,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-// CORS helper
+// CORS headers
 const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -39,17 +39,16 @@ export async function GET(request) {
     // Normalize URL (allow users to type example.com)
     if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
 
-    // Derive store if not supplied (hostname only)
+    // Derive store hostname if not provided
     if (!store) {
       try {
-        store = new URL(url).hostname; // example.com
+        store = new URL(url).hostname;
       } catch {
         store = url;
       }
     }
 
-    const apiKey = process.env.AIzaSyD6YKqBs9qNuVVobuWj5wYGOZB8PlYO-08;
-    if (!apiKey) {
+    if (!process.env.PSI_API_KEY) {
       return new Response(JSON.stringify({ error: 'PSI_API_KEY not set' }), {
         status: 500,
         headers: corsHeaders,
@@ -66,7 +65,7 @@ export async function GET(request) {
     const mobileRes = await fetch(
       `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(
         url
-      )}&strategy=mobile&key=${apiKey}`
+      )}&strategy=mobile&key=${process.env.PSI_API_KEY}`
     );
     const mobileData = await mobileRes.json();
     const mobileScore =
@@ -76,14 +75,14 @@ export async function GET(request) {
     const desktopRes = await fetch(
       `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(
         url
-      )}&strategy=desktop&key=${apiKey}`
+      )}&strategy=desktop&key=${process.env.PSI_API_KEY}`
     );
     const desktopData = await desktopRes.json();
     const desktopScore =
-      Math.round((desktopData?.lighthouseResult?.categories?.performance?.score ?? 0) * 100) || 0;
+      Math.round((desktopData?.lighthouseResult?.categories?.performance?.score ?? 0) * 100) * 1 || 0;
 
     // Append to Google Sheet:
-    // Sheet name: Ninja Scorecard Leads
+    // Sheet: "Ninja Scorecard Leads"
     // Columns: A Timestamp | B Store | C URL | D Email | E Mobile score | F Desktop score
     try {
       await sheets.spreadsheets.values.append({
@@ -96,7 +95,7 @@ export async function GET(request) {
       });
     } catch (e) {
       console.error('Sheets append error:', e);
-      // We still return scores to the user even if append fails
+      // continue returning scores even if append fails
     }
 
     return new Response(JSON.stringify({ mobile: mobileScore, desktop: desktopScore }), {
