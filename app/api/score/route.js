@@ -1,7 +1,10 @@
 // app/api/score/route.js
 import { google } from 'googleapis';
 
-const SHEET_ID = process.env.GOOGLE_SHEET_ID; // set in Vercel
+// Force Node.js runtime (googleapis needs Node, not Edge)
+export const runtime = 'nodejs';
+
+const SHEET_ID = process.env.GOOGLE_SHEET_ID; // e.g. 1n_FnDTm559QLooTaFt-ozH8_ik-cXcAs-mWwnYxDgHM
 
 // Google Sheets auth (service account JSON must be in Vercel env: GOOGLE_SERVICE_ACCOUNT)
 const auth = new google.auth.GoogleAuth({
@@ -36,7 +39,7 @@ export async function GET(request) {
       });
     }
 
-    // Normalize URL (allow users to type example.com)
+    // Normalize URL if user typed example.com
     if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
 
     // Derive store hostname if not provided
@@ -48,6 +51,7 @@ export async function GET(request) {
       }
     }
 
+    // Env checks
     if (!process.env.PSI_API_KEY) {
       return new Response(JSON.stringify({ error: 'PSI_API_KEY not set' }), {
         status: 500,
@@ -79,28 +83,32 @@ export async function GET(request) {
     );
     const desktopData = await desktopRes.json();
     const desktopScore =
-      Math.round((desktopData?.lighthouseResult?.categories?.performance?.score ?? 0) * 100) * 1 || 0;
+      Math.round((desktopData?.lighthouseResult?.categories?.performance?.score ?? 0) * 100) || 0;
 
     // Append to Google Sheet:
-    // Sheet: "Ninja Scorecard Leads"
+    // Tab: "Ninja Scorecard Leads"
     // Columns: A Timestamp | B Store | C URL | D Email | E Mobile score | F Desktop score
+    let sheetsAppend = 'skipped';
     try {
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: `'Ninja Scorecard Leads'!A:F`,
         valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
         requestBody: {
           values: [[new Date().toISOString(), store, url, email, mobileScore, desktopScore]],
         },
       });
+      sheetsAppend = 'ok';
     } catch (e) {
+      sheetsAppend = `error: ${e?.message || e}`;
       console.error('Sheets append error:', e);
-      // continue returning scores even if append fails
     }
 
-    return new Response(JSON.stringify({ mobile: mobileScore, desktop: desktopScore }), {
-      headers: corsHeaders,
-    });
+    return new Response(
+      JSON.stringify({ mobile: mobileScore, desktop: desktopScore, sheetsAppend }),
+      { headers: corsHeaders }
+    );
   } catch (err) {
     console.error(err);
     return new Response(JSON.stringify({ error: 'Something went wrong' }), {
